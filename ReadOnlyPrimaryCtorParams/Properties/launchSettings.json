@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Debug on Sample": {
+      "commandName": "DebugRoslynComponent",
+      "targetProject": "..\\ReadOnlyPrimaryCtorParams.Sample\\ReadOnlyPrimaryCtorParams.Sample.csproj"
+    }
+  }
+}
