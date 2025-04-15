@@ -142,10 +142,10 @@ public static class DisplayFormatters
             genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters);
 
     public static SymbolDisplayFormat HintNameFormat { get; } =
-    new SymbolDisplayFormat(
-        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
-        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-        genericsOptions: SymbolDisplayGenericsOptions.None);
+        new SymbolDisplayFormat(
+            globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+            genericsOptions: SymbolDisplayGenericsOptions.None);
 }
 
 internal record ReadonlyGeneratorDataModel(
@@ -190,22 +190,6 @@ public record TypeModel(
         return CreateTypeModel(parentTypeSymbols, parentTypeSymbols.Pop(), ct);
     }
 
-    public static bool TryCreate(Stack<INamedTypeSymbol> parentTypeSymbols, CancellationToken ct, [NotNullWhen(true)] out TypeModel? typeModel)
-    {
-        ct.ThrowIfCancellationRequested();
-
-        if (parentTypeSymbols.Count == 0)
-        {
-            typeModel = null;
-            return false;
-        }
-
-        var parentTypeSymbol = parentTypeSymbols.Pop();
-        typeModel = CreateTypeModel(parentTypeSymbols, parentTypeSymbol, ct);
-
-        return true;
-    }
-
     private static TypeModel CreateTypeModel(Stack<INamedTypeSymbol> parentTypeSymbols, INamedTypeSymbol parentTypeSymbol, CancellationToken ct)
     {
         var typeKind = parentTypeSymbol.TypeKind;
@@ -221,5 +205,21 @@ public record TypeModel(
             isRecord,
             parameterizedName,
             innerType);
+    }
+
+    public static bool TryCreate(Stack<INamedTypeSymbol> parentTypeSymbols, CancellationToken ct, [NotNullWhen(true)] out TypeModel? typeModel)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (parentTypeSymbols.Count == 0)
+        {
+            typeModel = null;
+            return false;
+        }
+
+        var parentTypeSymbol = parentTypeSymbols.Pop();
+        typeModel = CreateTypeModel(parentTypeSymbols, parentTypeSymbol, ct);
+
+        return true;
     }
 }
