@@ -38,7 +38,7 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
                 """);
         });
 
-        var x = initContext.SyntaxProvider.ForAttributeWithMetadataName(
+        var outputProvider = initContext.SyntaxProvider.ForAttributeWithMetadataName(
             "ReadOnlyPrimaryCtorParams.ReadOnlyAttribute",
             predicate: static (syntaxNode, ct) => IsPrimatyCtorParam(syntaxNode, ct),
             transform: static (context, ct) =>
@@ -98,7 +98,7 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
             })
             ;
 
-        initContext.RegisterSourceOutput(x, static (spc, source) =>
+        initContext.RegisterSourceOutput(outputProvider, static (spc, source) =>
         {
             var (hintName, sourceText) = source;
             spc.AddSource(hintName, sourceText);
