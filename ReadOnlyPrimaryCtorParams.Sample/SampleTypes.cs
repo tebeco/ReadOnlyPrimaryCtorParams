@@ -18,7 +18,6 @@ public partial class NestedParentLevel0
                 public void Get()
                 {
                     Console.WriteLine(bar.Name);
-                    bar = null!;
                 }
             }
         }

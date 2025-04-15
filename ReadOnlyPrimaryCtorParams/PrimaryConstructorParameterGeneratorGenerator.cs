@@ -180,14 +180,14 @@ public record TypeModel(
 
         var parentTypeSymbols = new Stack<INamedTypeSymbol>();
         var currentTypeSymbol = typeSymbol;
-
-        while (currentTypeSymbol.ContainingType is { } parent)
+        do
         {
-            parentTypeSymbols.Push(parent);
-            currentTypeSymbol = parent;
+            parentTypeSymbols.Push(currentTypeSymbol);
+            currentTypeSymbol = currentTypeSymbol.ContainingType;
         }
+        while (currentTypeSymbol is not null);
 
-        return CreateTypeModel(parentTypeSymbols, typeSymbol, ct);
+        return CreateTypeModel(parentTypeSymbols, parentTypeSymbols.Pop(), ct);
     }
 
     public static bool TryCreate(Stack<INamedTypeSymbol> parentTypeSymbols, CancellationToken ct, [NotNullWhen(true)] out TypeModel? typeModel)
