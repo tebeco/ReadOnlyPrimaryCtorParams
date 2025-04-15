@@ -1,8 +1,13 @@
 ﻿using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Dynamic;
 using System.Linq;
+using System.Reflection;
+using System.Text;
 using System.Threading;
 
 namespace ReadOnlyPrimaryCtorParams;
@@ -10,20 +15,6 @@ namespace ReadOnlyPrimaryCtorParams;
 [Generator]
 public class FixPrimaryConstructorGenerator : IIncrementalGenerator
 {
-    public static SymbolDisplayFormat FullyQualifiedNoGlobalFormat { get; } =
-        new SymbolDisplayFormat(
-            globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
-            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
-            miscellaneousOptions:
-                SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers |
-                SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
-
-    public static SymbolDisplayFormat TypeSignatureDisplayFormat { get; } =
-        new SymbolDisplayFormat(
-            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly,
-            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters);
-
     public void Initialize(IncrementalGeneratorInitializationContext initContext)
     {
         initContext.RegisterPostInitializationOutput(igpic =>
@@ -48,22 +39,14 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
                     return null;
                 }
 
-                var containingTypeMetadataName = context.TargetSymbol.ContainingType.MetadataName;
-                var containingNamespace = context.TargetSymbol.ContainingNamespace.ToDisplayString(FullyQualifiedNoGlobalFormat);
-                var containingTypeDeclarationTypeKind = context.TargetSymbol.ContainingType.TypeKind;
-                var containingTypeDeclarationIsRecord = context.TargetSymbol.ContainingType.IsRecord;
-                var containingTypeName = context.TargetSymbol.ContainingType.ToDisplayString(TypeSignatureDisplayFormat);
+                var topLevelTypeModel = TopLevelTypeModel.Create(context.TargetSymbol.ContainingType, ct);
                 var parameterTypeName = parameterSymbol.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var parameterName = parameterSymbol.Name;
 
                 var result = new ReadonlyGeneratorDataModel(
-                    ContainingTypeMetadataName: containingTypeMetadataName,
-                    ContainingNamespace: containingNamespace,
-                    ContainingTypeDeclarationTypeKind: containingTypeDeclarationTypeKind,
-                    ContainingTypeDeclarationIsRecord: containingTypeDeclarationIsRecord,
-                    ContainingTypeName: containingTypeName,
-                    ParameterTypeName: parameterTypeName,
-                    ParameterName: parameterName);
+                   TopLevelTypeModel: topLevelTypeModel,
+                   ParameterTypeName: parameterTypeName,
+                   ParameterName: parameterName);
 
                 return result;
             })
@@ -72,37 +55,62 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
             {
                 var model = t!;
 
-                var hintName = $"{model.ContainingTypeMetadataName}.g.cs";
-
-                var containingTypeDeclarationName = (model.ContainingTypeDeclarationTypeKind, model.ContainingTypeDeclarationIsRecord) switch
+                var source = new StringBuilder();
+                if (!string.IsNullOrEmpty(model.TopLevelTypeModel.Namespace))
                 {
-                    (TypeKind.Class, true) => "record",
-                    (TypeKind.Struct, true) => "record struct",
-                    (TypeKind.Struct, false) => "struct",
-                    _ => "class",
-                };
-
-                return (
-                        hintName,
+                    source.AppendLine(
                         $$"""
-                        namespace {{model.ContainingNamespace}};
-
-                        partial {{containingTypeDeclarationName}} {{model.ContainingTypeName}}
+                        namespace {{model.TopLevelTypeModel.Namespace}}
                         {
-                            /// <summary>
-                            /// The parameter {{model.ParameterName}} is <b><em>now</em></b> readonly.
-                            /// </summary>
-                            private readonly {{model.ParameterTypeName}} {{model.ParameterName}} = {{model.ParameterName}};
-                        }
                         """);
+                }
+
+                AppendSource(source, model, model.TopLevelTypeModel.Type);
+                if (!string.IsNullOrEmpty(model.TopLevelTypeModel.Namespace))
+                {
+                    source.AppendLine("}\n");
+                }
+                return source.ToString();
             })
-            ;
+            .Collect()
+            .Select(static (sources, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+
+                return string.Join("\n", sources);
+            });
 
         initContext.RegisterSourceOutput(outputProvider, static (spc, source) =>
         {
-            var (hintName, sourceText) = source;
-            spc.AddSource(hintName, sourceText);
+            spc.AddSource("ReadOnlyPrimaryCtorParams.g.cs", source);
         });
+    }
+
+    internal static void AppendSource(StringBuilder source, ReadonlyGeneratorDataModel model, TypeModel typeModel)
+    {
+        var typeDeclarationName = (typeModel.TypeKind, typeModel.IsRecord) switch
+        {
+            (TypeKind.Class, true) => "record",
+            (TypeKind.Struct, true) => "record struct",
+            (TypeKind.Struct, false) => "struct",
+            _ => "class",
+        };
+        source.AppendLine($"partial {typeDeclarationName} {typeModel.ParameterizedName}");
+        source.AppendLine("{");
+        if (typeModel.InnerType is { } innerType)
+        {
+            AppendSource(source, model, innerType);
+        }
+        else
+        {
+            source.AppendLine($$"""
+                /// <summary>
+                /// The parameter {{model.ParameterName}} is <b><em>now</em></b> readonly.
+                /// </summary>"
+                private readonly {{model.ParameterTypeName}} {{model.ParameterName}} = {{model.ParameterName}};
+                """);
+        }
+        source.AppendLine("}");
     }
 
     public static bool IsPrimatyCtorParam(SyntaxNode syntaxNode, CancellationToken _)
@@ -112,17 +120,106 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
             Parent: ParameterListSyntax
             {
                 Parent: (ClassDeclarationSyntax or StructDeclarationSyntax or RecordDeclarationSyntax)
-                    and { Parent: not TypeDeclarationSyntax }
             }
         };
     }
 }
 
+public static class DisplayFormatters
+{
+    public static SymbolDisplayFormat FullyQualifiedNoGlobalFormat { get; } =
+        new SymbolDisplayFormat(
+            globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+            miscellaneousOptions:
+                SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers |
+                SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+
+    public static SymbolDisplayFormat TypeSignatureDisplayFormat { get; } =
+        new SymbolDisplayFormat(
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly,
+            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters);
+
+    public static SymbolDisplayFormat HintNameFormat { get; } =
+    new SymbolDisplayFormat(
+        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.None);
+}
+
 internal record ReadonlyGeneratorDataModel(
-    string ContainingTypeMetadataName,
-    string ContainingNamespace,
-    TypeKind ContainingTypeDeclarationTypeKind,
-    bool ContainingTypeDeclarationIsRecord,
-    string ContainingTypeName,
+    TopLevelTypeModel TopLevelTypeModel,
     string ParameterTypeName,
     string ParameterName);
+
+public record TopLevelTypeModel(
+    string Namespace,
+    TypeModel Type)
+{
+    public static TopLevelTypeModel Create(INamedTypeSymbol namedTypeSymbol, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var @namespace = namedTypeSymbol.ContainingNamespace.ToDisplayString(DisplayFormatters.FullyQualifiedNoGlobalFormat);
+
+        var topLevelType = TypeModel.Create(namedTypeSymbol, ct);
+        return new TopLevelTypeModel(@namespace, topLevelType);
+    }
+}
+
+public record TypeModel(
+    TypeKind TypeKind,
+    bool IsRecord,
+    string ParameterizedName,
+    TypeModel? InnerType)
+{
+    public static TypeModel Create(INamedTypeSymbol typeSymbol, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var parentTypeSymbols = new Stack<INamedTypeSymbol>();
+        var currentTypeSymbol = typeSymbol;
+
+        while (currentTypeSymbol.ContainingType is { } parent)
+        {
+            parentTypeSymbols.Push(parent);
+            currentTypeSymbol = parent;
+        }
+
+        return CreateTypeModel(parentTypeSymbols, typeSymbol, ct);
+    }
+
+    public static bool TryCreate(Stack<INamedTypeSymbol> parentTypeSymbols, CancellationToken ct, [NotNullWhen(true)] out TypeModel? typeModel)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (parentTypeSymbols.Count == 0)
+        {
+            typeModel = null;
+            return false;
+        }
+
+        var parentTypeSymbol = parentTypeSymbols.Pop();
+        typeModel = CreateTypeModel(parentTypeSymbols, parentTypeSymbol, ct);
+
+        return true;
+    }
+
+    private static TypeModel CreateTypeModel(Stack<INamedTypeSymbol> parentTypeSymbols, INamedTypeSymbol parentTypeSymbol, CancellationToken ct)
+    {
+        var typeKind = parentTypeSymbol.TypeKind;
+        var isRecord = parentTypeSymbol.IsRecord;
+        var parameterizedName = parentTypeSymbol.ToDisplayString(DisplayFormatters.TypeSignatureDisplayFormat);
+
+        var innerType = TryCreate(parentTypeSymbols, ct, out var i)
+            ? i
+            : null;
+
+        return new TypeModel(
+            typeKind,
+            isRecord,
+            parameterizedName,
+            innerType);
+    }
+}
