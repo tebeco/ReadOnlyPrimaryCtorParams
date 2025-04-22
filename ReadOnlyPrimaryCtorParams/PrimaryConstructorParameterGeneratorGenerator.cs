@@ -20,7 +20,8 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
         initContext.RegisterPostInitializationOutput(igpic =>
         {
             igpic.AddSource(
-                "ReadonlyAttribute.g.cs", """
+                "ReadonlyAttribute.g.cs",
+                """
                 namespace ReadOnlyPrimaryCtorParams;
 
                 [AttributeUsage(AttributeTargets.Parameter)]
