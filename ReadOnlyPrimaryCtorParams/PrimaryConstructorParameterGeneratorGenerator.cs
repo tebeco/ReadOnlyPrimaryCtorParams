@@ -31,7 +31,7 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
 
         var outputProvider = initContext.SyntaxProvider.ForAttributeWithMetadataName(
             "ReadOnlyPrimaryCtorParams.ReadOnlyAttribute",
-            predicate: static (syntaxNode, ct) => IsPrimatyCtorParam(syntaxNode, ct),
+            predicate: static (syntaxNode, ct) => IsPrimaryCtorParam(syntaxNode, ct),
             transform: static (context, ct) =>
             {
                 if (context.TargetSymbol is not IParameterSymbol parameterSymbol)
@@ -113,9 +113,9 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
         source.AppendLine("}");
     }
 
-    public static bool IsPrimatyCtorParam(SyntaxNode syntaxNode, CancellationToken _)
     {
         return syntaxNode is ParameterSyntax
+    public static bool IsPrimaryCtorParam(SyntaxNode syntaxNode, CancellationToken ct)
         {
             Parent: ParameterListSyntax
             {
