@@ -113,16 +113,14 @@ public class FixPrimaryConstructorGenerator : IIncrementalGenerator
         source.AppendLine("}");
     }
 
-    {
-        return syntaxNode is ParameterSyntax
     public static bool IsPrimaryCtorParam(SyntaxNode syntaxNode, CancellationToken ct)
+        => syntaxNode is ParameterSyntax
         {
             Parent: ParameterListSyntax
             {
-                Parent: (ClassDeclarationSyntax or StructDeclarationSyntax or RecordDeclarationSyntax)
+                Parent: TypeDeclarationSyntax
             }
         };
-    }
 }
 
 public static class DisplayFormatters
